@@ -52,14 +52,12 @@ COPY --from=builder --chown=node:node /opt/lavamusic/locales ./locales
 RUN chown -R node:node /opt/lavamusic
 USER node
 
-# Entrypoint script for runtime operations
-COPY --chown=node:node docker-entrypoint.sh .
-RUN chmod +x docker-entrypoint.sh
 
 # Metadata labels
 LABEL maintainer="appujet <sdipedit@gmail.com>" \
+      org.opencontainers.image.title="LavaMusic" \
       org.opencontainers.image.description="LavaMusic - Advanced Music Bot" \
+      org.opencontainers.image.source="https://github.com/botxlab/lavamusic" \
       org.opencontainers.image.licenses="MIT"
 
-ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
