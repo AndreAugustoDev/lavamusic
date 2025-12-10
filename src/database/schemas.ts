@@ -9,6 +9,7 @@ export const guild = sqliteTable("Guild", {
     guildId: text("guildId").primaryKey(),
     prefix: text("prefix").notNull(),
     language: text("language").default("EnglishUS"),
+    defaultVolume: int("defaultVolume").default(50),
 });
 
 export const stay = sqliteTable("Stay", {

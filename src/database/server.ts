@@ -56,6 +56,20 @@ export default class ServerData {
 		return g?.language ?? env.DEFAULT_LANGUAGE;
 	}
 
+	public async setDefaultVolume(guildId: string, volume: number) {
+		// First ensure the guild exists
+		await this.get(guildId);
+
+		await db.update(guild)
+			.set({ defaultVolume: volume })
+			.where(eq(guild.guildId, guildId));
+	}
+
+	public async getDefaultVolume(guildId: string): Promise<number> {
+		const g = await this.get(guildId);
+		return g?.defaultVolume ?? 50;
+	}
+
 	// -----------------------------
 	// Setup
 	// -----------------------------
