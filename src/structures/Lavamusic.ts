@@ -1,6 +1,6 @@
-/** biome-ignore-all lint/style/noNonNullAssertion: explanation */
 import { Api } from "@top-gg/sdk";
 import {
+	type APIApplicationCommandOption,
 	ApplicationCommandType,
 	Client,
 	Collection,
@@ -8,28 +8,34 @@ import {
 	Events,
 	type Interaction,
 	Locale,
+	type LocalizationMap,
 	PermissionsBitField,
 	REST,
 	type RESTPostAPIChatInputApplicationCommandsJSONBody,
 	Routes,
 } from "discord.js";
-import fs, { existsSync } from "node:fs";
-import path from "node:path";
+import { existsSync } from "fs";
+import { join } from "path";
 import config from "../config";
 import ServerData from "../database/server";
 import { env } from "../env";
 import loadPlugins from "../plugin/index";
+import type { Language } from "../types";
+import { LavamusicEventType } from "../types/events";
 import * as Utils from "../utils/Utils";
 import { T, i18n, initI18n, localization } from "./I18n";
 import type { Command } from "./index";
 import LavalinkClient from "./LavalinkClient";
-import logger from "./Logger"; // Centralized logger instance
+import logger from "./Logger";
 
 export default class Lavamusic extends Client {
+	// Collections for internal state management
 	public commands: Collection<string, Command> = new Collection();
-	public aliases: Collection<string, any> = new Collection();
+	public aliases: Collection<string, string> = new Collection();
+	public cooldown: Collection<string, number> = new Collection();
+
+	// Database and config
 	public db = new ServerData();
-	public cooldown: Collection<string, any> = new Collection();
 	public config = config;
 	public readonly emoji = config.emoji;
 	public readonly color = config.color;
@@ -37,15 +43,22 @@ export default class Lavamusic extends Client {
 	// Utilities and Environment
 	public utils = Utils;
 	public env: typeof env = env;
-	public manager!: LavalinkClient;
+
+	// Services
 	public topGG!: Api;
+	public manager!: LavalinkClient;
 	public rest = new REST({ version: "10" }).setToken(env.TOKEN ?? "");
+
+	// Private members
 	private body: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [];
 
 	public embed(): EmbedBuilder {
 		return new EmbedBuilder();
 	}
 
+	/**
+	 * Initializes the bot, loads resources and login
+	 */
 	public async start(token: string): Promise<void> {
 		initI18n();
 
@@ -80,97 +93,133 @@ export default class Lavamusic extends Client {
 	 */
 	private setupInteractionListener(): void {
 		this.on(Events.InteractionCreate, async (interaction: Interaction) => {
-			if (interaction.isButton() && interaction.guildId) {
-				try {
-					const setup = await this.db.getSetup(interaction.guildId);
-					if (
-						setup &&
-						interaction.channelId === setup.textId &&
-						interaction.message.id === setup.messageId
-					) {
-						this.emit("setupButtons", interaction);
-					}
-				} catch (error) {
-					logger.error("Error handling setup buttons:", error);
+			if (!interaction.isButton() || !interaction.guildId) return;
+
+			try {
+				const setup = await this.db.getSetup(interaction.guildId);
+				if (
+					setup &&
+					interaction.channelId === setup.textId &&
+					interaction.message.id === setup.messageId
+				) {
+					this.emit("setupButtons", interaction);
 				}
+			} catch (error) {
+				logger.error("Error handling setup buttons:", error);
 			}
 		});
 	}
 
+	/**
+	 * Loads commands from the file system
+	 */
 	private async loadCommands(): Promise<void> {
-		const commandsPath = path.join(process.cwd(), "dist", "commands");
+		// Resolve absolute path relative to this file's location
+		const commandsPath = join(__dirname, "..", "commands");
 
+		// Check existence here to log specific warning for commands
 		if (!existsSync(commandsPath)) {
 			logger.warn(`Commands directory not found at ${commandsPath}`);
 			return;
 		}
 
-		const commandDirs = fs.readdirSync(commandsPath);
+		for (const { path: filePath, category, file } of this.utils.walkDirectory(commandsPath)) {
+			try {
+				const cmdModule = await import(filePath);
+				const CommandClass = cmdModule.default || cmdModule;
 
-		for (const dir of commandDirs) {
-			const dirPath = path.join(commandsPath, dir);
-			if (!fs.lstatSync(dirPath).isDirectory()) continue;
+				if (typeof CommandClass !== "function") continue;
 
-			const commandFiles = fs
-				.readdirSync(dirPath)
-				.filter((file) => file.endsWith(".js"));
+				const command: Command = new CommandClass(this, file);
+				command.category = category;
 
-			for (const file of commandFiles) {
-				try {
-					const cmdModule = require(path.join(dirPath, file));
-					const command: Command = new cmdModule.default(this, file);
-					command.category = dir;
+				this.commands.set(command.name, command);
 
-					this.commands.set(command.name, command);
-					command.aliases.forEach((alias: string) => {
-						this.aliases.set(alias, command.name as any);
-					});
-
-					if (command.slashCommand) {
-						this.body.push(this.prepareCommandData(command));
-					}
-				} catch (error) {
-					logger.error(`Failed to load command ${file}:`, error);
+				for (const alias of command.aliases) {
+					this.aliases.set(alias, command.name);
 				}
+
+				if (command.slashCommand) {
+					this.body.push(this.prepareCommandData(command));
+				}
+			} catch (error) {
+				logger.error(`Failed to load command ${file}:`, error);
 			}
 		}
 	}
 
-	private prepareCommandData(
-		command: Command,
-	): RESTPostAPIChatInputApplicationCommandsJSONBody {
+	/**
+	 * Prepares data for a slash command, handling localizations and options
+	 */
+	private prepareCommandData(command: Command): RESTPostAPIChatInputApplicationCommandsJSONBody {
 		const data: RESTPostAPIChatInputApplicationCommandsJSONBody = {
 			name: command.name,
 			description: T(Locale.EnglishUS, command.description.content),
 			type: ApplicationCommandType.ChatInput,
 			options: command.options || [],
 			default_member_permissions:
-				Array.isArray(command.permissions.user) &&
-				command.permissions.user.length > 0
-					? PermissionsBitField.resolve(
-							command.permissions.user as any,
-						).toString()
+				Array.isArray(command.permissions.user) && command.permissions.user.length > 0
+					? PermissionsBitField.resolve(command.permissions.user).toString()
 					: null,
-			name_localizations: {},
-			description_localizations: {},
+			name_localizations: this.resolveLocalizations(command.name, "name"),
+			description_localizations: this.resolveLocalizations(
+				command.description.content,
+				"description",
+			),
 		};
 
-		// Handle localizations
-		for (const locale of i18n.getLocales()) {
-			const loc = localization(
-				locale,
-				command.name,
-				command.description.content,
-			);
-			if (loc.name) data.name_localizations![loc.name[0] as any] = loc.name[1];
-			if (loc.description)
-				data.description_localizations![loc.description[0] as any] =
-					loc.description[1];
+		if (command.options?.length) {
+			data.options = command.options.map((opt) =>
+				this.processCommandOptions(opt),
+			) as unknown as APIApplicationCommandOption[];
 		}
 
 		return data;
 	}
 
+	/**
+	 * Processes command options to apply translations
+	 */
+	private processCommandOptions(option: any): any {
+		const localizedOption = {
+			...option,
+			name_localizations: this.resolveLocalizations(option.name, "name"),
+			description_localizations: this.resolveLocalizations(option.description, "description"),
+			description: T(Locale.EnglishUS, option.description),
+		};
+
+		if (option.options?.length) {
+			localizedOption.options = option.options.map((subOption: any) =>
+				this.processCommandOptions(subOption),
+			);
+		}
+
+		return localizedOption;
+	}
+
+	/**
+	 * Generates a localization map for a given key
+	 */
+	private resolveLocalizations(key: string, type: "name" | "description"): LocalizationMap {
+		const locales = i18n.getLocales();
+		const map: LocalizationMap = {};
+
+		for (const locale of locales) {
+			const result = localization(locale as Language, key, key);
+
+			if (result?.[type]) {
+				const [langCode, translatedValue] = result[type];
+				if (langCode && translatedValue) {
+					map[langCode as keyof LocalizationMap] = translatedValue;
+				}
+			}
+		}
+		return map;
+	}
+
+	/**
+	 * Deploys slash commands
+	 */
 	public async deployCommands(guildId?: string): Promise<void> {
 		if (!this.user?.id) {
 			logger.error("Cannot deploy commands: Client is not logged in.");
@@ -189,38 +238,34 @@ export default class Lavamusic extends Client {
 		}
 	}
 
+	/**
+	 * Loads events from the file system
+	 */
 	private async loadEvents(): Promise<void> {
-		const eventsPath = path.join(process.cwd(), "dist", "events");
+		const eventsPath = join(__dirname, "..", "events");
 
 		if (!existsSync(eventsPath)) return;
 
-		const eventDirs = fs.readdirSync(eventsPath);
+		for (const { path: filePath, category, file } of this.utils.walkDirectory(eventsPath)) {
+			try {
+				const eventModule = await import(filePath);
+				const EventClass = eventModule.default || eventModule;
+				const event = new EventClass(this, file);
 
-		for (const dir of eventDirs) {
-			const dirPath = path.join(eventsPath, dir);
-			if (!fs.lstatSync(dirPath).isDirectory()) continue;
-
-			const eventFiles = fs
-				.readdirSync(dirPath)
-				.filter((file) => file.endsWith(".js"));
-
-			for (const file of eventFiles) {
-				try {
-					const eventModule = require(path.join(dirPath, file));
-					const event = new eventModule.default(this, file);
-
-					if (dir === "player") {
-						this.manager.on(event.name, (...args: any) => event.run(...args));
-					} else if (dir === "node") {
-						this.manager.nodeManager.on(event.name, (...args: any) =>
-							event.run(...args),
-						);
-					} else {
-						this.on(event.name, (...args) => event.run(...args));
-					}
-				} catch (error) {
-					logger.error(`Failed to load event ${file}:`, error);
+				// Register event listeners based on category
+				switch (category) {
+					case LavamusicEventType.Player:
+						this.manager.on(event.name, (...args: any[]) => event.run(...args));
+						break;
+					case LavamusicEventType.Node:
+						this.manager.nodeManager.on(event.name, (...args: any[]) => event.run(...args));
+						break;
+					case LavamusicEventType.Client:
+						this.on(event.name, (...args: any[]) => event.run(...args));
+						break;
 				}
+			} catch (error) {
+				logger.error(`Failed to load event ${file}:`, error);
 			}
 		}
 	}
