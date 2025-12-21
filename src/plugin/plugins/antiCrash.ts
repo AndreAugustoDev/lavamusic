@@ -1,5 +1,5 @@
 import type { Lavamusic } from "../../structures/index";
-import type { BotPlugin } from "../index";
+import type { BotPlugin } from "../../types/botPlugin";
 
 const antiCrash: BotPlugin = {
 	name: "AntiCrash Plugin",
