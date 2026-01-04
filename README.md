@@ -101,14 +101,22 @@ java -jar lavalink.jar  # Assuming you have the JAR ready
 
 By default, it runs at `localhost:2333`. Easy peasy!
 
-#### 5. Prepare the Database
-For quick setup (using SQLite):
+#### 5. 🚨 IMPORTANT: Set Up the Database (Required!)
+**You MUST run this step before starting the bot, or it will crash!**
+
+Choose your database type by setting `DATABASE_URL` in your `.env` file (see [Database Configuration](#database-configuration) below):
+
+**For SQLite (recommended for beginners):**
 ```bash
-npm run generate
-npm run push
+npm run db:push:sqlite
 ```
 
-Switch to PostgreSQL anytime by updating your DATABASE_URL.
+**For PostgreSQL/PGLite (if DATABASE_URL is set to postgres://... or empty):**
+```bash
+npm run db:push
+```
+
+This creates all necessary database tables. Without this step, the bot will fail to start!
 
 #### 6. Launch the Bot!
 Build and run:
@@ -127,26 +135,28 @@ In any server channel, type `!deploy` or `/deploy` to activate slash commands.
 
 ## 🐳 Docker Lovers' Shortcut (One-Click Setup!)
 
-Prefer containers? We've got you!
+Prefer containers? We've got you! Docker automatically handles database setup.
 
 1. Install Docker and Docker Compose if you haven't.
 
 2. Copy configs as above.
 
-3. Set up your `.env` file.
+3. Set up your `.env` file (Docker will use PostgreSQL by default).
 
 4. Launch everything:
 ```bash
 docker compose up -d
 ```
 
-Boom! Bot, Lavalink, and even a PostgreSQL database—all running automatically.
+Boom! Bot, Lavalink, and PostgreSQL database—all running automatically with no extra setup needed!
 
 Want to update later?
 ```bash
 docker compose pull
 docker compose up -d --force-recreate
 ```
+
+**Note**: If you prefer SQLite with Docker, set `DATABASE_URL="file:./lavamusic.db"` in your `.env` and run the database setup command manually before starting Docker.
 
 ## 🎵 Let's Make Some Music! Basic Commands
 
@@ -171,10 +181,25 @@ Your bot's personality lives here:
 - `TOKEN`: Your bot's secret identity
 - `PREFIX`: Default command starter (like `/` or `!`)
 - `DEFAULT_LANGUAGE`: Start with `en` for English
-- `DATABASE_URL`: Where data lives (SQLite or full DB)
+- `DATABASE_URL`: Where data lives (see database section below)
 - `OWNER_IDS`: Your admin IDs (array format)
 - `NODES`: Lavalink connection details
 - Peek at `.env.example` for all options!
+
+### Database Configuration
+Lavamusic supports multiple database backends. Set the `DATABASE_URL` environment variable to choose your database:
+
+| DATABASE_URL Format | Database Type | Driver | Example |
+|---------------------|---------------|--------|---------|
+| (empty/not set) | PGLite | drizzle-orm/pglite | `""` |
+| `postgres://...` | PostgreSQL | drizzle-orm/node-postgres | `postgres://user:pass@localhost:5432/db` |
+| `postgresql://...` | PostgreSQL | drizzle-orm/node-postgres | `postgresql://user:pass@localhost:5432/db` |
+| `sqlite:...` | SQLite | drizzle-orm/bun-sqlite | `sqlite:./lavamusic.db` |
+| `file:./path.db` | SQLite | drizzle-orm/bun-sqlite | `file:./lavamusic.db` |
+| `file:./path.sqlite` | SQLite | drizzle-orm/bun-sqlite | `file:./lavamusic.sqlite` |
+| `file:./path.sqlite3` | SQLite | drizzle-orm/bun-sqlite | `file:./lavamusic.sqlite3` |
+| `file:./path?mode=ro` | SQLite | drizzle-orm/bun-sqlite | `file:./lavamusic.db?mode=ro` |
+| `file:./directory` | PGLite | drizzle-orm/pglite | `file:./lavamusic-pgdata` |
 
 ### Lavalink Customization
 Tweak `Lavalink/application.yml` for audio sources, plugins, and tweaks.

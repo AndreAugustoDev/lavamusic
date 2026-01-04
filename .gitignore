@@ -535,6 +535,7 @@ Lavalink/plugins/*.jar
 Lavalink/application.yml
 Lavalink/Lavalink.jar
 lavamusic.db
+lavamusic-pgdata/
 package-lock.json
 
 /generated/prisma
