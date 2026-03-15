@@ -37,6 +37,7 @@ export async function initI18n() {
 		nsSeparator: ":",
 		keySeparator: ".",
 		initImmediate: false,
+		showSupportNotice: false,
 	});
 
 	for (const locale of languages) {
