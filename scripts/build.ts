@@ -1,26 +1,10 @@
 import { rm } from "node:fs/promises";
 import type { BuildConfig, BunPlugin } from "bun";
 
-console.time("✅ Build complete");
-
-console.log("🧹 Cleaning previous build...");
-await rm("./dist", { recursive: true, force: true });
-
-Bun.spawnSync(["bun", "run", "scripts/prepare-pglite.ts"], {
-	stdout: "inherit",
-	stderr: "inherit",
-});
-
-// Find all .ts files (except type definitions and tests)
-const glob = new Bun.Glob("**/*.ts");
-const entrypoints: string[] = [];
-
-console.log("🔍 Scanning source files...");
-for await (const file of glob.scan({ cwd: "./src" })) {
-	if (!file.endsWith(".d.ts") && !file.endsWith(".test.ts")) {
-		entrypoints.push(`./src/${file}`);
-	}
-}
+const clean = async () => {
+	console.log("🧹 Cleaning previous build...");
+	await rm("./dist", { recursive: true, force: true });
+};
 
 const stubOptionalDeps: BunPlugin = {
 	name: "stub-optional-deps",
@@ -36,38 +20,54 @@ const stubOptionalDeps: BunPlugin = {
 	},
 };
 
-/**
- * Build configuration
- */
-const buildConfig: BuildConfig = {
-	entrypoints: entrypoints,
-	outdir: "./dist",
-	root: "./src",
-	minify: true,
-	target: "bun",
-	sourcemap: false,
-	external: ["./locales/*"],
-	splitting: true,
-	naming: { chunk: "chunks/[hash].[ext]" },
-	plugins: [stubOptionalDeps],
-	define: {
-		"process.env.NODE_ENV": JSON.stringify("production"),
-		"process.env.build_date": JSON.stringify(new Date().toISOString()),
-	},
+const main = async () => {
+	console.time("✅ Build complete");
+
+	try {
+		await clean();
+
+		// Find all .ts files (except type definitions and tests)
+		console.log("🔍 Scanning source files...");
+		const glob = new Bun.Glob("**/*.ts");
+		const entrypoints = Array.from(glob.scanSync({ cwd: "./src" }))
+			.filter((file) => !file.endsWith(".d.ts") && !file.endsWith(".test.ts"))
+			.map((file) => `./src/${file}`);
+
+		console.log(`🔨 Transpiling ${entrypoints.length} files...`);
+
+		/**
+		 * Build configuration
+		 */
+		const buildConfig: BuildConfig = {
+			entrypoints: entrypoints,
+			outdir: "./dist",
+			root: "./src",
+			minify: true,
+			target: "bun",
+			sourcemap: false,
+			external: ["./locales/*", "@electric-sql/pglite"],
+			splitting: true,
+			naming: { chunk: "chunks/[hash].[ext]" },
+			plugins: [stubOptionalDeps],
+			define: {
+				"process.env.NODE_ENV": JSON.stringify("production"),
+				"process.env.build_date": JSON.stringify(new Date().toISOString()),
+			},
+		};
+
+		const result = await Bun.build(buildConfig);
+
+		if (!result.success) {
+			console.error(result.logs.map((log) => log.message).join("\n"));
+			throw new Error(result.logs.map((log) => log.message).join("\n"));
+		}
+		console.log(`✅ Build successful! Generated ${result.outputs.length} files in ./dist`);
+	} catch (err) {
+		console.error(`❌ Build failed: ${err}`);
+		process.exit(1);
+	} finally {
+		console.timeEnd("✅ Build complete");
+	}
 };
 
-console.log(`🔨 Transpiling ${entrypoints.length} files...`);
-
-const result = await Bun.build(buildConfig);
-
-if (result.success) {
-	console.log(`✅ Build successful! Generated ${result.outputs.length} files in ./dist`);
-} else {
-	console.error("❌ Build failed");
-	for (const message of result.logs) {
-		console.error(message);
-	}
-	process.exit(1);
-}
-
-console.timeEnd("✅ Build complete");
+main();

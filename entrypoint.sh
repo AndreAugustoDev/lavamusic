@@ -10,15 +10,16 @@ if echo "$DATABASE_URL" | grep -qE "^sqlite:|file:.*\.db$|file:.*\.sqlite$|\.db$
   echo "📂 Detected SQLite database configuration."
   echo "🔄 Synchronizing SQLite schema..."
 
-  su-exec 1000:1000 bun run db:push:sqlite
+  su-exec bun:bun bun run db:push:sqlite
 else
   echo "🐘 Detected PostgreSQL / PGLite configuration."
   echo "🔄 Synchronizing PostgreSQL schema..."
 
-  su-exec 1000:1000 bun run db:push
+  su-exec bun:bun bun run db:push
 fi
 
+echo ""
 echo "✅ Database is ready"
 echo "🎵 Starting Lavamusic..."
 
-exec su-exec 1000:1000 "$@"
+exec su-exec bun:bun "$@"

@@ -61,24 +61,8 @@ export async function createDatabaseProvider(): Promise<IDatabaseProvider> {
 			const { drizzle } = await import("drizzle-orm/pglite");
 			const dataDir = env.DATABASE_URL?.replace("file:", "") || "./lavamusic-pgdata";
 
-			let client: any;
-
-			// PGLite bundle workaround
-			if (process.env.NODE_ENV === "production") {
-				try {
-					// Dynamic import to not break dev if assets don't exist
-					const { createPGlite } = await import("./pglite-wrapper");
-					client = await createPGlite(dataDir);
-					logger.info("[DB] Using bundled PGlite");
-				} catch (err) {
-					logger.error("Failed to load bundled PGlite, falling back to standard:", err);
-					const { PGlite } = await import("@electric-sql/pglite");
-					client = new PGlite(dataDir);
-				}
-			} else {
-				const { PGlite } = await import("@electric-sql/pglite");
-				client = new PGlite(dataDir);
-			}
+			const { PGlite } = await import("@electric-sql/pglite");
+			const client: any = new PGlite(dataDir);
 
 			const db = drizzle(client, { schema: pgSchema });
 
